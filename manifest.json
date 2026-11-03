@@ -1,16 +1,14 @@
-﻿{
+﻿
+{
   "manifest_version": 3,
-  "name": "Auto Raw Text Sheet Exporter",
-  "version": "2.0",
-  "description": "Edunext फीस रसीद लोड होते ही डेटा को ऑटोमैटिकली Google Sheet में भेजें",
-  "permissions": [],
+  "name": "Shemford Fee Auto Green",
+  "version": "1.0",
+  "description": "Edunext रसीद खुलते ही एडमिशन नंबर डिटेक्ट करके शीट अपडेट करता है",
+  "permissions": ["storage"],
   "content_scripts": [
     {
-      "matches": [
-        "https://shemfordnatwa.edunext1.com/TemplateFeeDataReceipt*"
-      ],
-      "js": ["content.js"],
-      "run_at": "document_end"
+      "matches": ["https://shemfordnatwa.edunext1.com/TemplateFeeDataReceipt*"],
+      "js": ["content.js"]
     }
   ]
 }
