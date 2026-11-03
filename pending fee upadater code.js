@@ -1,0 +1,230 @@
+function doPost(e) {
+  try {
+    var json = JSON.parse(e.postData.contents);
+    var rawText = json.rawText;
+
+    if (!rawText) {
+      return response("error", "rawText missing");
+    }
+
+    var lines = rawText.split(/\r?\n/);
+    var admissionNo = "";
+// Raw text se date extract karein
+var dateMatch = rawText.match(
+  /\b(\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4})\b/
+);
+
+var rawDate = dateMatch ? dateMatch[1] : "";
+
+if (!rawDate) {
+  return response("no_date", "Raw text mein date nahi mili");
+}
+
+    // 1. Admission No extract karein
+    for (var i = 0; i < lines.length; i++) {
+      var match = lines[i].match(
+        /ADMISSION\s*NO\.?\s*[:\-]?\s*([A-Z0-9\/-]+)/i
+      );
+
+      if (match) {
+        admissionNo = match[1].trim();
+        break;
+      }
+    }
+
+    if (!admissionNo) {
+      return response("failed", "Admission No not found");
+    }
+
+    // 2. Month aur year extract karein
+    var months = [
+      "JANUARY", "FEBRUARY", "MARCH", "APRIL",
+      "MAY", "JUNE", "JULY", "AUGUST",
+      "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"
+    ];
+
+    var finalMonthYearString = "";
+    var highestMonthIndex = -1;
+
+    for (var i = 0; i < lines.length; i++) {
+      var upper = lines[i].toUpperCase();
+
+      if (
+        upper.indexOf("FEES") !== -1 ||
+        upper.indexOf("CHARGE") !== -1 ||
+        upper.indexOf("MONTHLY") !== -1
+      ) {
+        for (var m = 0; m < months.length; m++) {
+          var pos = upper.indexOf(months[m]);
+
+          if (pos !== -1 && m > highestMonthIndex) {
+            highestMonthIndex = m;
+
+            var extractPart = lines[i].substring(pos);
+            var yearMatch = extractPart.match(
+              /^[A-Za-z]+\s*(\d{2,4})/
+            );
+
+            var monthName =
+              months[m].charAt(0) +
+              months[m].slice(1).toLowerCase();
+
+            finalMonthYearString = yearMatch
+              ? monthName + " " + yearMatch[1]
+              : monthName;
+          }
+        }
+      }
+    }
+
+    if (!finalMonthYearString) {
+      return response("no_month", "Month not found");
+    }
+
+    // 3. Current spreadsheet
+    var currentSs = SpreadsheetApp.getActiveSpreadsheet();
+
+    // 4. ID wali spreadsheet
+    var secondSs = SpreadsheetApp.openById(
+      "12jqP3qUidcvCWVK2JCb4Hi9ywgxCI3Al8gqE0faqa68"
+    );
+
+    var sheet1Current = currentSs
+      ? currentSs.getSheetByName("Sheet1")
+      : null;
+
+    var sheet1Second = secondSs.getSheetByName("Oct.26 Pending Details - 27.10.2026");
+
+    if (!sheet1Second) {
+      return response(
+        "error",
+        "ID wali spreadsheet mein Sheet1 nahi mili"
+      );
+    }
+
+    // 5. Dono sheets update karein
+    var currentUpdated = false;
+    var secondUpdated = false;
+
+    if (sheet1Current) {
+      currentUpdated = updateSheetColumnL(
+  sheet1Current,
+  admissionNo,
+  finalMonthYearString,
+  rawDate
+);
+    }
+
+    secondUpdated = updateSheetColumnL(
+  sheet1Second,
+  admissionNo,
+  finalMonthYearString,
+  rawDate
+);
+    SpreadsheetApp.flush();
+
+    if (currentUpdated || secondUpdated) {
+      return response("success", {
+        admissionNo: admissionNo,
+        value: finalMonthYearString,
+        currentUpdated: currentUpdated,
+        secondUpdated: secondUpdated
+      });
+    }
+
+    return response("not_found", {
+      admissionNo: admissionNo,
+      message: "Column B mein matching Admission No nahi mila"
+    });
+
+  } catch (error) {
+    return response("error", error.toString());
+  }
+}
+
+
+// Column B mein Admission No search karke Column L update karein
+function updateSheetColumnL(sheet, admissionNo, valueToSet, rawDate)  {
+
+  // Check karein ki sheet mili hai ya nahi
+  if (!sheet) {
+    throw new Error("Sheet undefined hai. Sheet name check karein.");
+  }
+
+  if (admissionNo == null || admissionNo === "") {
+    throw new Error("Admission No empty hai.");
+  }
+
+  if (valueToSet == null || valueToSet === "") {
+    throw new Error("Column L mein set karne wali value empty hai.");
+  }
+
+  var lastRow = sheet.getLastRow();
+
+  if (lastRow < 5) {
+    return false;
+  }
+
+  var admissionRange = sheet
+    .getRange(5, 2, lastRow - 4, 1)
+    .getDisplayValues();
+
+  var target = String(admissionNo)
+    .trim()
+    .replace(/\s+/g, "")
+    .toUpperCase();
+
+  for (var r = 0; r < admissionRange.length; r++) {
+
+    var sheetValue = String(admissionRange[r][0] || "")
+      .trim()
+      .replace(/\s+/g, "")
+      .toUpperCase();
+
+    if (sheetValue === target) {
+
+      // Column L = 12
+     sheet.getRange(r + 5, 12).setValue(
+  "Fee Deposited upto " + valueToSet +
+  " dated on " + rawDate
+);
+
+
+
+      SpreadsheetApp.flush();
+
+      Logger.log(
+        "Updated: Sheet=" + sheet.getName() +
+        ", Row=" + (r + 5) +
+        ", Admission No=" + target +
+        ", Value=" + valueToSet
+      );
+
+      return true;
+    }
+  }
+
+  Logger.log(
+    "Admission No nahi mila: " + target +
+    ", Sheet: " + sheet.getName()
+  );
+
+  return false;
+}
+
+// JSON response
+function response(status, details) {
+  var result = { status: status };
+
+  if (details !== undefined) {
+    if (typeof details === "string") {
+      result.message = details;
+    } else {
+      result.details = details;
+    }
+  }
+
+  return ContentService
+    .createTextOutput(JSON.stringify(result))
+    .setMimeType(ContentService.MimeType.JSON);
+}
